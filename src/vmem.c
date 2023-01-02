@@ -1,5 +1,5 @@
 /*
- * Public domain implementation of the VMem Resource Allocator
+ * Implementation of the VMem Resource Allocator
  *
  * See: Adams, A. and Bonwick, J. (2001). Magazines and Vmem: Extending the Slab
  * Allocator to Many CPUs and Arbitrary Resources.
