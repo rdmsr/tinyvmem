@@ -233,6 +233,8 @@ Vmem *vmem_create(char *name, void *base, size_t size, size_t quantum, VmemAlloc
     ret->source = source;
     ret->qcache_max = qcache_max;
     ret->vmflag = vmflag;
+    ret->stat.free = size;
+    ret->stat.total += size;
 
     LIST_INIT(&ret->spanlist);
     TAILQ_INIT(&ret->segqueue);
@@ -258,6 +260,8 @@ void *vmem_add(Vmem *vmp, void *addr, size_t size, int vmflag)
 {
     ASSERT(!vmem_contains(vmp, addr, size));
 
+    vmp->stat.free += size;
+    vmp->stat.total += size;
     (void)vmflag;
     return vmem_add_internal(vmp, addr, size, false);
 }
@@ -402,6 +406,9 @@ found:
 
     ASSERT(new_seg->size >= size);
 
+    vmp->stat.free -= new_seg->size;
+    vmp->stat.in_use += new_seg->size;
+
     new_seg->type = SEGMENT_ALLOCATED;
 
     ret = (void *)new_seg->base;
@@ -432,6 +439,10 @@ void vmem_dump(Vmem *vmp)
         {
             kprintf("%lx: [address: %p, size %p]\n", murmur64(span->base), (void *)span->base, (void *)span->size);
         }
+    kprintf("Stat:\n");
+    kprintf("- in_use: %ld\n", vmp->stat.in_use);
+    kprintf("- free: %ld\n", vmp->stat.free);
+    kprintf("- total: %ld\n", vmp->stat.total);
 }
 
 void vmem_bootstrap(void)
