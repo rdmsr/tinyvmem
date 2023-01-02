@@ -270,6 +270,8 @@ void *vmem_xalloc(Vmem *vmp, size_t size, size_t align, size_t phase,
     uintptr_t start = 0;
     void *ret = NULL;
 
+    ASSERT(nocross == 0 && "Not implemented yet");
+
     /* If we don't want a specific alignment, we can just use the quantum */
     /* FIXME: What if `align` is not quantum aligned? Maybe add an ASSERT() ? */
 
@@ -298,7 +300,7 @@ void *vmem_xalloc(Vmem *vmp, size_t size, size_t align, size_t phase,
             for (list = first_list; list < end; list++)
             {
                 seg = LIST_FIRST(list);
-                if (!seg)
+                if (seg != NULL)
                 {
                     if (seg_fit(seg, size, align, phase, nocross, (uintptr_t)minaddr, (uintptr_t)maxaddr, &start) == 0)
                         goto found;
