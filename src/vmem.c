@@ -108,7 +108,7 @@ static uint64_t murmur64(uint64_t h)
     return h;
 }
 
-static VmemSegList *hashbucket_for_addr(Vmem *vmem, uintptr_t addr)
+static VmemSegList *hashtable_for_addr(Vmem *vmem, uintptr_t addr)
 {
     /* Hash the address and get the remainder */
     uintptr_t idx = murmur64(addr) % ARR_SIZE(vmem->hashtable);
@@ -117,7 +117,7 @@ static VmemSegList *hashbucket_for_addr(Vmem *vmem, uintptr_t addr)
 
 static void hashtab_insert(Vmem *vmem, VmemSegment *seg)
 {
-    LIST_INSERT_HEAD(hashbucket_for_addr(vmem, seg->base), seg, seglist);
+    LIST_INSERT_HEAD(hashtable_for_addr(vmem, seg->base), seg, seglist);
 }
 
 static VmemSegList *freelist_for_size(Vmem *vmem, size_t size)
@@ -180,14 +180,17 @@ static VmemSegment *vmem_add_internal(Vmem *vmem, void *base, size_t size, bool 
     return newfree;
 }
 
+#define VMEM_CROSS_P(addr1, addr2, boundary) \
+    ((((addr1) ^ (addr2)) & -(boundary)) != 0)
+
 static int seg_fit(VmemSegment *segment, size_t size, size_t align, size_t phase, size_t nocross, uintptr_t minaddr, uintptr_t maxaddr, uintptr_t *addrp)
 {
     uintptr_t start, end;
     ASSERT(size > 0);
     ASSERT(segment->size >= size);
 
-    start = MIN(segment->base, minaddr);
-    end = MAX(segment->base + segment->size, maxaddr);
+    start = MAX(segment->base, minaddr);
+    end = MIN(segment->base + segment->size, maxaddr);
 
     if (start > end)
         return -ENOMEM;
@@ -206,7 +209,7 @@ static int seg_fit(VmemSegment *segment, size_t size, size_t align, size_t phase
         start += align;
     }
 
-    ASSERT(nocross == 0 && "Not implemented yet");
+    ASSERT(nocross == 0 && "Not implemented (yet)");
 
     /* Ensure that `end` is bigger than `start` and we found a segment of the proper size */
     if (start <= end && (end - start) >= size)
@@ -235,6 +238,8 @@ Vmem *vmem_create(char *name, void *base, size_t size, size_t quantum, VmemAlloc
     ret->vmflag = vmflag;
     ret->stat.free = size;
     ret->stat.total += size;
+    ret->stat.in_use = 0;
+    ret->stat.import = 0;
 
     LIST_INIT(&ret->spanlist);
     TAILQ_INIT(&ret->segqueue);
@@ -292,6 +297,9 @@ void *vmem_xalloc(Vmem *vmp, size_t size, size_t align, size_t phase,
     new_seg = seg_alloc();
     new_seg2 = seg_alloc();
 
+    memset(new_seg, 0, sizeof(VmemSegment));
+    memset(new_seg2, 0, sizeof(VmemSegment));
+
     ASSERT(new_seg && new_seg2);
 
     while (true)
@@ -322,6 +330,7 @@ void *vmem_xalloc(Vmem *vmp, size_t size, size_t align, size_t phase,
                 {
                     if (seg->size >= size)
                     {
+
                         /* Try to make the segment fit */
                         if (seg_fit(seg, size, align, phase, nocross, (uintptr_t)minaddr, (uintptr_t)maxaddr, &start) == 0)
                             goto found;
@@ -372,8 +381,9 @@ found:
 
     ASSERT(seg->base == start);
 
-    if (seg->size > size && (seg->size - size) > vmp->quantum - 1)
+    if (seg->size != size && (seg->size - size) > vmp->quantum - 1)
     {
+
         /* In the case where the segment's size is bigger than the requested size, we need to split the segment into two:
          * one free part of size `seg->size - size` and another allocated one of size `size`. For example, if we want to allocate [0, 0x1000]
          * and the segment is [0, 0x10000], we have to create a new segment, [0, 0x1000] and offset the current segment by `size`. Therefore ending up with:
@@ -396,6 +406,7 @@ found:
     }
     else
     {
+        seg->type = SEGMENT_ALLOCATED;
         hashtab_insert(vmp, seg);
         seg_free(new_seg);
         new_seg = seg;
@@ -416,12 +427,69 @@ found:
     return ret;
 }
 
+void vmem_xfree(Vmem *vmp, void *addr, size_t size)
+{
+    VmemSegment *seg, *neighbor;
+    VmemSegList *list;
+
+    list = hashtable_for_addr(vmp, (uintptr_t)addr);
+
+    LIST_FOREACH(seg, list, seglist)
+    {
+        if (seg->base == (uintptr_t)addr)
+        {
+            break;
+        }
+    }
+
+    ASSERT(seg->size == size);
+
+    /* Remove the segment from the hashtable */
+    LIST_REMOVE(seg, seglist);
+
+    /* Coalesce to the right */
+    neighbor = TAILQ_NEXT(seg, segqueue);
+
+    if (neighbor && neighbor->type == SEGMENT_FREE)
+    {
+        /* Remove our neighbor since we're merging with it */
+        LIST_REMOVE(neighbor, seglist);
+
+        TAILQ_REMOVE(&vmp->segqueue, neighbor, segqueue);
+
+        seg->size += neighbor->size;
+
+        seg_free(neighbor);
+    }
+
+    /* Coalesce to the left */
+    neighbor = TAILQ_PREV(seg, VmemSegQueue, segqueue);
+
+    if (neighbor->type == SEGMENT_FREE)
+    {
+        LIST_REMOVE(neighbor, seglist);
+        TAILQ_REMOVE(&vmp->segqueue, neighbor, segqueue);
+
+        seg->size += neighbor->size;
+        seg->base = neighbor->base;
+
+        seg_free(neighbor);
+    }
+
+    seg->type = SEGMENT_FREE;
+
+    vmem_add_to_freelist(vmp, seg);
+
+    vmp->stat.in_use -= size;
+    vmp->stat.free += size;
+}
+
 void vmem_dump(Vmem *vmp)
 {
     VmemSegment *span;
     size_t i;
 
-    kprintf("VMem arena \"%s\" segments:\n", vmp->name);
+    kprintf("-- VMem arena \"%s\" segments -- \n", vmp->name);
 
     TAILQ_FOREACH(span, &vmp->segqueue, segqueue)
     {
