@@ -28,7 +28,7 @@ If you're running on a freestanding environment, you need to define the =__KERNE
   /* Assertion */
   #define ASSERT(...) assert
 
-  /* Printf-like function, can be ignore if you're not going to call vmem_dump() */
+  /* Printf-like function, can be ignored if you're not going to call vmem_dump() */
   #define vmem_printf(...) printf
 
 #+END_SRC
