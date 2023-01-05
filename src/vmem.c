@@ -330,9 +330,6 @@ void *vmem_xalloc(Vmem *vmp, size_t size, size_t align, size_t phase,
     new_seg = seg_alloc();
     new_seg2 = seg_alloc();
 
-    memset(new_seg, 0, sizeof(VmemSegment));
-    memset(new_seg2, 0, sizeof(VmemSegment));
-
     ASSERT(new_seg && new_seg2);
 
     while (true)
