@@ -1,5 +1,5 @@
 /*
- * Implementation of the VMem Resource Allocator
+ * Public Domain implementation of the VMem Resource Allocator
  *
  * See: Adams, A. and Bonwick, J. (2001). Magazines and Vmem: Extending the Slab
  * Allocator to Many CPUs and Arbitrary Resources.
@@ -12,11 +12,9 @@
 
 #ifndef __KERNEL__
 #    include <assert.h>
-#    include <errno.h>
 #    include <stdio.h>
 #    include <stdlib.h>
 #    define kmalloc malloc
-#    define kfree free
 #    define kprintf printf
 #    define ASSERT assert
 #    define seg_alloc() malloc(sizeof(VmemSegment))
@@ -110,7 +108,7 @@ static int seg_fit(VmemSegment *segment, size_t size, size_t align, size_t phase
     end = MIN(segment->base + segment->size, maxaddr);
 
     if (start > end)
-        return -ENOMEM;
+        return -VMEM_ERR_NO_MEM;
 
     /*  Phase is the offset from the alignment boundary.
      *  For example, if `start` is 260, `phase` is 8 and align is `64`, we need to do the following calculation:
@@ -135,7 +133,7 @@ static int seg_fit(VmemSegment *segment, size_t size, size_t align, size_t phase
         return 0;
     }
 
-    return -ENOMEM;
+    return -VMEM_ERR_NO_MEM;
 }
 
 static uint64_t murmur64(uint64_t h)
@@ -225,12 +223,12 @@ static int vmem_import(Vmem *vmp, size_t size, int vmflag)
     void *addr;
     VmemSegment *new_seg;
     if (!vmp->alloc)
-        return -1;
+        return -VMEM_ERR_NO_MEM;
 
     addr = vmp->alloc(vmp->source, size, vmflag);
 
     if (!addr)
-        return -1;
+        return -VMEM_ERR_NO_MEM;
 
     new_seg = vmem_add_internal(vmp, addr, size, true);
 
@@ -280,6 +278,20 @@ Vmem *vmem_create(char *name, void *base, size_t size, size_t quantum, VmemAlloc
         vmem_add(ret, base, size, vmflag);
 
     return ret;
+}
+
+void vmem_destroy(Vmem *vmp)
+{
+    VmemSegment *seg;
+    size_t i;
+
+    for (i = 0; i < sizeof(vmp->hashtable) / sizeof(*vmp->hashtable); i++)
+        assert(LIST_EMPTY(&vmp->hashtable[i]));
+
+    TAILQ_FOREACH(seg, &vmp->segqueue, segqueue)
+    {
+        seg_free(seg);
+    }
 }
 
 void *vmem_add(Vmem *vmp, void *addr, size_t size, int vmflag)

@@ -34,6 +34,8 @@ to cycle through all the IDs before reusing them. (cited from paper) */
    We need to allocate new segments but to allocate new segments, we need to refill the list, this flag ensures that no refilling occurs. */
 #define VM_BOOTSTRAP (1 << 5)
 
+#define VMEM_ERR_NO_MEM 1
+
 struct vmem;
 
 /* Vmem allows one arena to import its resources from

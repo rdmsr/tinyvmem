@@ -94,6 +94,7 @@ static void test_vmem_imported(void **state)
 
 int vmem_run_tests(void)
 {
+    int r;
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_vmem_alloc),
         cmocka_unit_test(test_vmem_free),
@@ -104,5 +105,10 @@ int vmem_run_tests(void)
     vmem_va = vmem_create("tests-va", (void *)0x1000, 0x100000, 0x1000, NULL, NULL, NULL, 0, 0);
     vmem_wired = vmem_create("tests-wired", 0, 0, 0x1000, internal_allocwired, internal_freewired, vmem_va, 0, 0);
 
-    return cmocka_run_group_tests(tests, NULL, NULL);
+    r = cmocka_run_group_tests(tests, NULL, NULL);
+
+    vmem_destroy(vmem_va);
+    vmem_destroy(vmem_wired);
+
+    return r;
 }
