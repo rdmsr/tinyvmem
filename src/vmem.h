@@ -41,8 +41,8 @@ another. vmem_create() specifies the source arena,
 and the functions to allocate and free from that source. The arena imports new spans as needed, and gives
 them back when all their segments have been freed. (cited from paper) These types describe those functions.
  */
-typedef void (*VmemAlloc)(struct vmem *vmem, size_t size, int flags);
-typedef void (*VmemFree)(struct vmem *vmem, void *addr, size_t size);
+typedef void *VmemAlloc(struct vmem *vmem, size_t size, int flags);
+typedef void VmemFree(struct vmem *vmem, void *addr, size_t size);
 
 /* We can't use boundary tags because the resource we're managing is not necessarily memory.
    To counter this, we can use *external boundary tags*. For each segment in the arena

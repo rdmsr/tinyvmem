@@ -26,6 +26,8 @@
 
 /* TODO (important) Add spinlocks! */
 #define ARR_SIZE(x) (sizeof(x) / sizeof(*x))
+#define VMEM_ADDR_MIN 0
+#define VMEM_ADDR_MAX (~(uintptr_t)0)
 
 /* Assuming FREELISTS_N is 64,
  * we can calculate the freelist index by substracting the leading zero count from 64
@@ -96,6 +98,44 @@ static int repopulate_segments(void)
     nfreesegs += ARR_SIZE(segblock->segs);
 
     return 0;
+}
+
+static int seg_fit(VmemSegment *segment, size_t size, size_t align, size_t phase, size_t nocross, uintptr_t minaddr, uintptr_t maxaddr, uintptr_t *addrp)
+{
+    uintptr_t start, end;
+    ASSERT(size > 0);
+    ASSERT(segment->size >= size);
+
+    start = MAX(segment->base, minaddr);
+    end = MIN(segment->base + segment->size, maxaddr);
+
+    if (start > end)
+        return -ENOMEM;
+
+    /*  Phase is the offset from the alignment boundary.
+     *  For example, if `start` is 260, `phase` is 8 and align is `64`, we need to do the following calculation:
+     *  ALIGN_UP(260 - 8, 64) = 256. 256 + 8 = 264. (264 % 64) is 8 as requested.
+     */
+    start = VMEM_ALIGNUP(start - phase, align) + phase;
+
+    /* If for some reason, start is smaller than the segment base, we need to ensure start is atleast as big as `align`
+     * This can happen if, for example, we find that `start` is 0 and segment->base is 0x1000.
+     * In this case, align is 0x1000. */
+    if (start < segment->base)
+    {
+        start += align;
+    }
+
+    ASSERT(nocross == 0 && "Not implemented (yet)");
+
+    /* Ensure that `end` is bigger than `start` and we found a segment of the proper size */
+    if (start <= end && (end - start) >= size)
+    {
+        *addrp = start;
+        return 0;
+    }
+
+    return -ENOMEM;
 }
 
 static uint64_t murmur64(uint64_t h)
@@ -180,45 +220,26 @@ static VmemSegment *vmem_add_internal(Vmem *vmem, void *base, size_t size, bool 
     return newfree;
 }
 
-#define VMEM_CROSS_P(addr1, addr2, boundary) \
-    ((((addr1) ^ (addr2)) & -(boundary)) != 0)
-
-static int seg_fit(VmemSegment *segment, size_t size, size_t align, size_t phase, size_t nocross, uintptr_t minaddr, uintptr_t maxaddr, uintptr_t *addrp)
+static int vmem_import(Vmem *vmp, size_t size, int vmflag)
 {
-    uintptr_t start, end;
-    ASSERT(size > 0);
-    ASSERT(segment->size >= size);
+    void *addr;
+    VmemSegment *new_seg;
+    if (!vmp->alloc)
+        return -1;
 
-    start = MAX(segment->base, minaddr);
-    end = MIN(segment->base + segment->size, maxaddr);
+    addr = vmp->alloc(vmp->source, size, vmflag);
 
-    if (start > end)
-        return -ENOMEM;
+    if (!addr)
+        return -1;
 
-    /*  Phase is the offset from the alignment boundary.
-     *  For example, if `start` is 260, `phase` is 8 and align is `64`, we need to do the following calculation:
-     *  ALIGN_UP(260 - 8, 64) = 256. 256 + 8 = 264. (264 % 64) is 8 as requested.
-     */
-    start = VMEM_ALIGNUP(start - phase, align) + phase;
+    new_seg = vmem_add_internal(vmp, addr, size, true);
 
-    /* If for some reason, start is smaller than the segment base, we need to ensure start is atleast as big as `align`
-     * This can happen if, for example, we find that `start` is 0 and segment->base is 0x1000.
-     * In this case, align is 0x1000. */
-    if (start < segment->base)
+    if (!new_seg)
     {
-        start += align;
+        vmp->free(vmp->source, addr, size);
     }
 
-    ASSERT(nocross == 0 && "Not implemented (yet)");
-
-    /* Ensure that `end` is bigger than `start` and we found a segment of the proper size */
-    if (start <= end && (end - start) >= size)
-    {
-        *addrp = start;
-        return 0;
-    }
-
-    return -ENOMEM;
+    return 0;
 }
 
 Vmem *vmem_create(char *name, void *base, size_t size, size_t quantum, VmemAlloc *afunc, VmemFree *ffunc, Vmem *source, size_t qcache_max, int vmflag)
@@ -289,7 +310,7 @@ void *vmem_xalloc(Vmem *vmp, size_t size, size_t align, size_t phase,
         align = vmp->quantum;
     }
 
-    if (vmflag & VM_BOOTSTRAP)
+    if (!(vmflag & VM_BOOTSTRAP))
         ASSERT(repopulate_segments() == 0);
 
     /* Allocate the new segments */
@@ -337,10 +358,18 @@ void *vmem_xalloc(Vmem *vmp, size_t size, size_t align, size_t phase,
                     }
                 }
         }
-        else
+        else if (vmflag & VM_NEXTFIT)
         {
-            ASSERT(!"TODO");
+            ASSERT(!"TODO: implement nextfit");
         }
+
+        if (vmem_import(vmp, size, vmflag) == 0)
+        {
+            continue;
+        }
+
+        ASSERT(!"Allocation failed");
+        return NULL;
     }
 
 found:
@@ -427,6 +456,11 @@ found:
     return ret;
 }
 
+void *vmem_alloc(Vmem *vmp, size_t size, int vmflag)
+{
+    return vmem_xalloc(vmp, size, 0, 0, 0, (void *)VMEM_ADDR_MIN, (void *)VMEM_ADDR_MAX, vmflag);
+}
+
 void vmem_xfree(Vmem *vmp, void *addr, size_t size)
 {
     VmemSegment *seg, *neighbor;
@@ -476,12 +510,36 @@ void vmem_xfree(Vmem *vmp, void *addr, size_t size)
         seg_free(neighbor);
     }
 
+    neighbor = TAILQ_PREV(seg, VmemSegQueue, segqueue);
+
+    ASSERT(neighbor->type == SEGMENT_SPAN || neighbor->type == SEGMENT_ALLOCATED);
+
     seg->type = SEGMENT_FREE;
 
-    vmem_add_to_freelist(vmp, seg);
+    if (vmp->free != NULL && neighbor->type == SEGMENT_SPAN && neighbor->imported == true && neighbor->size == seg->size)
+    {
+        uintptr_t span_addr = seg->base;
+        size_t span_size = seg->size;
+
+        TAILQ_REMOVE(&vmp->segqueue, seg, segqueue);
+        seg_free(seg);
+        TAILQ_REMOVE(&vmp->segqueue, neighbor, segqueue);
+        seg_free(neighbor);
+
+        vmp->free(vmp->source, (void *)span_addr, span_size);
+    }
+    else
+    {
+        vmem_add_to_freelist(vmp, seg);
+    }
 
     vmp->stat.in_use -= size;
     vmp->stat.free += size;
+}
+
+void vmem_free(Vmem *vmp, void *addr, size_t size)
+{
+    vmem_xfree(vmp, addr, size);
 }
 
 void vmem_dump(Vmem *vmp)
