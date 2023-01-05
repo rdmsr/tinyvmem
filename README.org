@@ -1,0 +1,2 @@
+#+AUTHOR: me
+#+TITLE: TinyVMem: a public domain implementation of the Vmem resource allocator
