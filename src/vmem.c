@@ -14,15 +14,13 @@
 #    include <assert.h>
 #    include <stdio.h>
 #    include <stdlib.h>
-#    define kmalloc malloc
-#    define kprintf printf
+#    define vmem_printf printf
 #    define ASSERT assert
 #    define seg_alloc() malloc(sizeof(VmemSegment))
 #    define seg_free(x) free(x)
-#    define alloc_pages(x) malloc(x * 4096)
+#    define vmem_alloc_pages(x) malloc(x * 4096)
 #endif
 
-/* TODO (important) Add spinlocks! */
 #define ARR_SIZE(x) (sizeof(x) / sizeof(*x))
 #define VMEM_ADDR_MIN 0
 #define VMEM_ADDR_MAX (~(uintptr_t)0)
@@ -53,23 +51,31 @@ static const char *seg_type_str[] = {
     "span"};
 
 #ifdef __KERNEL__
+
+void vmem_lock(void);
+void vmem_unlock(void);
+
 static VmemSegment *seg_alloc(void)
 {
     /* TODO: when bootstrapped, allocate boundary tags dynamically as described in the paper */
     VmemSegment *vsp;
 
+    vmem_lock();
     ASSERT(!LIST_EMPTY(&free_segs));
     vsp = LIST_FIRST(&free_segs);
     LIST_REMOVE(vsp, seglist);
     nfreesegs--;
+    vmem_unlock();
 
     return vsp;
 }
 
 static void seg_free(VmemSegment *seg)
 {
+    vmem_lock();
     LIST_INSERT_HEAD(&free_segs, seg, seglist);
     nfreesegs++;
+    vmem_unlock();
 }
 
 #endif
@@ -86,7 +92,7 @@ static int repopulate_segments(void)
         return 0;
 
     /* Add 64 new segments */
-    segblock = alloc_pages(1);
+    segblock = vmem_alloc_pages(1);
 
     for (i = 0; i < ARR_SIZE(segblock->segs); i++)
     {
@@ -240,9 +246,8 @@ static int vmem_import(Vmem *vmp, size_t size, int vmflag)
     return 0;
 }
 
-Vmem *vmem_create(char *name, void *base, size_t size, size_t quantum, VmemAlloc *afunc, VmemFree *ffunc, Vmem *source, size_t qcache_max, int vmflag)
+int vmem_init(Vmem *ret, char *name, void *base, size_t size, size_t quantum, VmemAlloc *afunc, VmemFree *ffunc, Vmem *source, size_t qcache_max, int vmflag)
 {
-    Vmem *ret = kmalloc(sizeof(Vmem));
     size_t i;
 
     strcpy(ret->name, name);
@@ -277,7 +282,7 @@ Vmem *vmem_create(char *name, void *base, size_t size, size_t quantum, VmemAlloc
     if (!source && size)
         vmem_add(ret, base, size, vmflag);
 
-    return ret;
+    return 0;
 }
 
 void vmem_destroy(Vmem *vmp)
@@ -556,28 +561,28 @@ void vmem_dump(Vmem *vmp)
     VmemSegment *span;
     size_t i;
 
-    kprintf("-- VMem arena \"%s\" segments -- \n", vmp->name);
+    vmem_printf("-- VMem arena \"%s\" segments -- \n", vmp->name);
 
     TAILQ_FOREACH(span, &vmp->segqueue, segqueue)
     {
-        kprintf("[0x%lx, 0x%lx] (%s)",
-                span->base, span->base + span->size, seg_type_str[span->type]);
+        vmem_printf("[0x%lx, 0x%lx] (%s)",
+                    span->base, span->base + span->size, seg_type_str[span->type]);
         if (span->imported)
-            kprintf("(imported)");
-        kprintf("\n");
+            vmem_printf("(imported)");
+        vmem_printf("\n");
     }
 
-    kprintf("Hashtable:\n ");
+    vmem_printf("Hashtable:\n ");
 
     for (i = 0; i < ARR_SIZE(vmp->hashtable); i++)
         LIST_FOREACH(span, &vmp->hashtable[i], seglist)
         {
-            kprintf("%lx: [address: %p, size %p]\n", murmur64(span->base), (void *)span->base, (void *)span->size);
+            vmem_printf("%lx: [address: %p, size %p]\n", murmur64(span->base), (void *)span->base, (void *)span->size);
         }
-    kprintf("Stat:\n");
-    kprintf("- in_use: %ld\n", vmp->stat.in_use);
-    kprintf("- free: %ld\n", vmp->stat.free);
-    kprintf("- total: %ld\n", vmp->stat.total);
+    vmem_printf("Stat:\n");
+    vmem_printf("- in_use: %ld\n", vmp->stat.in_use);
+    vmem_printf("- free: %ld\n", vmp->stat.free);
+    vmem_printf("- total: %ld\n", vmp->stat.total);
 }
 
 void vmem_bootstrap(void)

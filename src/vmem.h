@@ -109,14 +109,8 @@ typedef struct vmem
     VmemStat stat;
 } Vmem;
 
-/* Creates a vmem arena called name whose initial span is [base, base + size). The arena’s natural
-unit of currency is quantum, so vmem_alloc() guarantees quantum−aligned results. The arena may
-import new spans by invoking afunc on source, and may return those spans by invoking ffunc on
-source. Small allocations are common, so the arena provides high−performance caching for each
-integer multiple of quantum up to qcache_max. vmflag is either VM_SLEEP or VM_NOSLEEP
-depending on whether the caller is willing to wait for memory to create the arena. vmem_create()
-returns an opaque pointer to the arena. (cited from paper) */
-Vmem *vmem_create(char *name, void *base, size_t size, size_t quantum, VmemAlloc *afunc, VmemFree *ffunc, Vmem *source, size_t qcache_max, int vmflag);
+/* Initializes a vmem arena (no malloc) */
+int vmem_init(Vmem *vmem, char *name, void *base, size_t size, size_t quantum, VmemAlloc *afunc, VmemFree *ffunc, Vmem *source, size_t qcache_max, int vmflag);
 
 /* Destroys arena `vmp` */
 void vmem_destroy(Vmem *vmp);

@@ -1,2 +1,40 @@
 #+AUTHOR: me
-#+TITLE: TinyVMem: a public domain implementation of the Vmem resource allocator
+#+TITLE: TinyVMem
+
+TinyVMem is a public domain implementation of the VMem resource allocator first described in the paper [[https://www.usenix.org/legacy/publications/library/proceedings/usenix01/full_papers/bonwick/bonwick.pdf]["Magazines and Vmem: Extending the Slab Allocator to Many CPUs and Arbitrary Resources"]]
+
+** Features
+- VMem, despite its name, is not limited to allocation of virtual address space; it can deal with any sort of interval scale (for example, PIDs).
+- Support for multiple allocation strategies such as best-fit and instant fit (constant time). Next-fit support is planned.
+- Reduced fragmentation.
+- Allows importing spans from other arenas.
+
+** Porting
+TinyVMem is written in portable ANSI C therefore porting to a new platform should be easy enough.
+If you're running on a freestanding environment, you need to define the =__KERNEL__= macro and the following functions/macros:
+#+BEGIN_SRC c
+  /* Allocates 'n' pages */
+  void *vmem_alloc_pages(size_t n);
+
+  /* Locks a global lock (defined by the user) */
+  void vmem_lock(void);
+
+  /* Locks a global lock (defined by the user) */
+  void vmem_unlock(void);
+
+  /* From libc's string.h */
+  char *strcpy(char *restrict dst, const char *restrict src);
+
+  /* Assertion */
+  #define ASSERT(...) assert
+
+  /* Printf-like function, can be ignore if you're not going to call vmem_dump() */
+  #define vmem_printf(...) printf
+
+#+END_SRC
+
+You also need to have a complete implementation of =sys/queue.h= available. If not, I suggest you use [[https://github.com/IIJ-NetBSD/netbsd-src/blob/master/sys/sys/queue.h][netbsd's]].
+
+*** TODO
+- Implement support for next-fit allocation
+- Implement support for VM_NOSLEEP and VM_SLEEP
