@@ -291,7 +291,7 @@ void vmem_destroy(Vmem *vmp)
     size_t i;
 
     for (i = 0; i < sizeof(vmp->hashtable) / sizeof(*vmp->hashtable); i++)
-        assert(LIST_EMPTY(&vmp->hashtable[i]));
+        ASSERT(LIST_EMPTY(&vmp->hashtable[i]));
 
     TAILQ_FOREACH(seg, &vmp->segqueue, segqueue)
     {
