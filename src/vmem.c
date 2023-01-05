@@ -35,7 +35,6 @@
 #define VMEM_ALIGNUP(addr, align) \
     (((addr) + (align)-1) & ~((align)-1))
 
-#define NFREESEGS_MIN 8
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
 
@@ -83,15 +82,11 @@ static int repopulate_segments(void)
 {
     struct
     {
-        VmemSegment segs[64];
+        VmemSegment segs[128];
     } * segblock;
     size_t i;
 
-    /* Already good enough */
-    if (nfreesegs > NFREESEGS_MIN)
-        return 0;
-
-    /* Add 64 new segments */
+    /* Add 128 new segments */
     segblock = vmem_alloc_pages(1);
 
     for (i = 0; i < ARR_SIZE(segblock->segs); i++)
