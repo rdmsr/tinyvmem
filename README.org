@@ -35,6 +35,6 @@ If you're running on a freestanding environment, you need to define the =__KERNE
 
 You also need to have a complete implementation of =sys/queue.h= available. If not, I suggest you use [[https://github.com/IIJ-NetBSD/netbsd-src/blob/master/sys/sys/queue.h][netbsd's]].
 
-*** TODO
-- Implement support for next-fit allocation
-- Implement support for VM_NOSLEEP and VM_SLEEP
+** TODO
+- [ ] Implement support for next-fit allocation
+- [ ] Implement support for VM_NOSLEEP and VM_SLEEP
