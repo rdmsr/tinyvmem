@@ -82,19 +82,20 @@ static int repopulate_segments(void)
 {
     struct
     {
-        VmemSegment segs[128];
+        VmemSegment segs[64];
     } * segblock;
     size_t i;
 
-    /* Add 128 new segments */
+    if (nfreesegs >= 128)
+        return 0;
+
+    /* Add 64 new segments */
     segblock = vmem_alloc_pages(1);
 
     for (i = 0; i < ARR_SIZE(segblock->segs); i++)
     {
         seg_free(&segblock->segs[i]);
     }
-
-    nfreesegs += ARR_SIZE(segblock->segs);
 
     return 0;
 }
@@ -585,7 +586,6 @@ void vmem_bootstrap(void)
     size_t i;
     for (i = 0; i < ARR_SIZE(static_segs); i++)
     {
-        LIST_INSERT_HEAD(&free_segs, &static_segs[i], seglist);
-        nfreesegs++;
+        seg_free(&static_segs[i]);
     }
 }
