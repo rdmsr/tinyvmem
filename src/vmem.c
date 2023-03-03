@@ -16,8 +16,6 @@
 #    include <stdlib.h>
 #    define vmem_printf printf
 #    define ASSERT assert
-#    define seg_alloc() malloc(sizeof(VmemSegment))
-#    define seg_free(x) free(x)
 #    define vmem_alloc_pages(x) malloc(x * 4096)
 #endif
 
@@ -54,6 +52,11 @@ static const char *seg_type_str[] = {
 void vmem_lock(void);
 void vmem_unlock(void);
 
+#else
+#    define vmem_lock()
+#    define vmem_unlock()
+#endif
+
 static VmemSegment *seg_alloc(void)
 {
     /* TODO: when bootstrapped, allocate boundary tags dynamically as described in the paper */
@@ -77,13 +80,12 @@ static void seg_free(VmemSegment *seg)
     vmem_unlock();
 }
 
-#endif
 static int repopulate_segments(void)
 {
     struct
     {
         VmemSegment segs[64];
-    } * segblock;
+    } *segblock;
     size_t i;
 
     if (nfreesegs >= 128)
@@ -337,6 +339,12 @@ void *vmem_xalloc(Vmem *vmp, size_t size, size_t align, size_t phase,
     {
         if (vmflag & VM_INSTANTFIT) /* VM_INSTANTFIT */
         {
+            /* If the size is not a power of two, use freelist[n+1] instead of freelist[n] */
+            if ((size & (size - 1)) != 0)
+            {
+                first_list++;
+            }
+
             /* We just get the first segment from the list. This ensures constant-time allocation.
              * Note that we do not need to check the size of the segments because they are guaranteed to be big enough (see freelist_for_size)
              */
